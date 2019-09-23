@@ -36,7 +36,7 @@ class MailOverseer:
         self._logger.setLevel(logging.DEBUG)
         log_handler = logging.StreamHandler(sys.stdout)
         log_handler.setLevel(getattr(logging, config.get('overseer', 'log_level', fallback='DEBUG')))
-        log_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+        log_handler.setFormatter(logging.Formatter('[MailOverseer] [%(levelname)s] %(message)s'))
         self._logger.addHandler(log_handler)
 
         self._mailboxes = []
@@ -87,7 +87,7 @@ class MailOverseer:
                 unseen = self._get_total_unseen_count()
                 if unseen != self._last_unseen_count:
                     self._last_unseen_count = unseen
-                    self._logger.debug('New unseen count: {}'.format(unseen))
+                    self._logger.info('New unseen count: {}'.format(unseen))
 
                     if self._unseen_command:
                         self._logger.debug('Calling: {}'.format(self._unseen_command))
