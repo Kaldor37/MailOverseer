@@ -11,5 +11,12 @@ setup(
     description='Gestionnaire de mails',
     author='Davy Gabard',
     author_email='davy.gabard@gmail.com',
-    packages=find_packages()
+    packages=find_packages(),
+    install_requires=[
+        'PyQt5>=5.14'
+    ],
+    include_pacakge_data=True,
+    package_data={
+        'mailoverseer': ['icons/*.png']
+    }
 )

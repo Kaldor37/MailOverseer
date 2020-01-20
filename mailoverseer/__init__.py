@@ -1,23 +1,29 @@
 import imaplib
 import logging
+import os
 import re
 import signal
 import subprocess
 import sys
-import time
 from collections import OrderedDict
 from datetime import datetime, timedelta
+from os.path import dirname
+
+from PyQt5.QtCore import QTimer
+from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction
 
 from .__version__ import __version__
 
 __all__ = ['__version__', 'MailOverseer']
 
+# Path des icons
+ICONS_PATH = os.path.join(dirname(__file__), 'icons')
+
 
 class MailOverseer:
 
     def __init__(self, config):
-        self._running = False
-
         self._connection = None
         self._server = config.get('imap', 'server')
         self._login = config.get('imap', 'login')
@@ -41,63 +47,116 @@ class MailOverseer:
 
         self._mailboxes = []
 
+        # Unix stop signal bindings
         signal.signal(signal.SIGTERM, self.stop)
         signal.signal(signal.SIGQUIT, self.stop)
         signal.signal(signal.SIGINT, self.stop)
         signal.signal(signal.SIGABRT, self.stop)
 
+        # Qt components
+        self._app = QApplication([])
+
+        print(ICONS_PATH)
+
+        # System tray icons
+        self._default_icon = QIcon(os.path.join(ICONS_PATH, 'default.png'))
+        self._unseen_mails_icon = QIcon(os.path.join(ICONS_PATH, 'unseen-mails.png'))
+
+        # System tray icon menu
+        self._systray_menu = QMenu()
+        self._systray_menu.addAction(QAction('Refresh', self._app, triggered=self._on_refresh_clicked))
+        self._systray_menu.addSeparator()
+        self._systray_menu.addAction(QAction('Exit', self._app, triggered=self.stop))
+
+        # System tray icon
+        self._tray_icon = QSystemTrayIcon(self._default_icon)
+        self._tray_icon.setContextMenu(self._systray_menu)
+        self._tray_icon.activated.connect(self._on_tray_icon_activated)
+        self._systray_click_command = config.get('tray', 'on_click_command', fallback=None)
+
+        # Timer running unseen mail checks
+        self._main_timer = QTimer()
+        self._main_timer.timeout.connect(self._check_unseen_mails)
+        self._main_timer.start(500)
+
     def run(self):
-        if self._running:
-            return
-
-        self._running = True
-        while self._running:
-            try:
-                self._tick()
-            except imaplib.IMAP4.error:
-                self._logger.exception('IMAP error !')
-                self._disconnect()
-
-            time.sleep(1)
+        self._tray_icon.show()
+        return_code = self._app.exec_()
 
         self._disconnect()
-
         if self._unseen_command:
             subprocess.run([self._unseen_command, '0'])
 
+        return return_code
+
     def stop(self, *_, **__):
+        """
+        Received stop request (Qt / Unix Signal / etc.)
+        """
         self._logger.info('Stopping...')
-        self._running = False
+        self._main_timer.stop()
+
+        self._app.quit()
 
     def _disconnect(self):
+        """
+        Close SMTP connection
+        """
         if self.connected:
             self._connection.logout()
             self._connection = None
+
+    def _on_tray_icon_activated(self, activation_reason: int):
+        """
+        Clicked on the tray icon
+        """
+        if activation_reason != QSystemTrayIcon.Context and self._systray_click_command:
+            self._logger.debug('Calling: {}'.format(self._systray_click_command))
+            subprocess.run([self._systray_click_command])
+
+    def _on_refresh_clicked(self):
+        """
+        Clicked on refresh button
+        """
+        self._check_unseen_mails(True)
 
     @property
     def connected(self):
         return self._connection is not None
 
-    def _tick(self):
-        if self.connected:
-            now = datetime.now()
+    def _check_unseen_mails(self, force=False):
+        try:
+            if self.connected:
+                now = datetime.now()
 
-            if self._last_unseen_stats is None or self._last_unseen_stats < (now - self._unseen_stats_delta):
-                self._last_unseen_stats = now
-                unseen = self._get_total_unseen_count()
-                if unseen != self._last_unseen_count:
-                    self._last_unseen_count = unseen
-                    self._logger.info('New unseen count: {}'.format(unseen))
+                if (
+                    self._last_unseen_stats is None
+                    or self._last_unseen_stats < (now - self._unseen_stats_delta)
+                    or force
+                ):
+                    self._last_unseen_stats = now
+                    unseen = self._get_total_unseen_count()
+                    self._unseen_mails_icon.unseen_count = unseen
+                    if unseen != self._last_unseen_count:
+                        self._last_unseen_count = unseen
+                        self._logger.info('New unseen count: {}'.format(unseen))
 
-                    if self._unseen_command:
-                        self._logger.debug('Calling: {}'.format(self._unseen_command))
-                        subprocess.run([self._unseen_command, str(unseen)])
-        else:
-            self._connect()
+                        if self._unseen_command:
+                            self._logger.debug('Calling: {}'.format(self._unseen_command))
+                            subprocess.run([self._unseen_command, str(unseen)])
+
+                        self._tray_icon.setIcon(self._unseen_mails_icon if unseen > 0 else self._default_icon)
+
+            else:
+                self._connect()
+
+        except imaplib.IMAP4.error:
+            self._logger.exception('IMAP error !')
+            self._disconnect()
 
     def _connect(self):
         """
-        Connexion au serveur IMAP
+        Initiate IMAP connection
         """
         assert self._connection is None
 
@@ -113,10 +172,16 @@ class MailOverseer:
         self._on_connection_success()
 
     def _on_connection_success(self):
+        """
+        IMAP connection succeeded
+        """
         self._logger.info('Connection succeeded!')
         self._list_mailboxes()
 
     def _get_message_headers(self, msg_num):
+        """
+        Fetch headers for the required message number
+        """
         err_code, raw_msg_headers = self._connection.fetch(msg_num, '(BODY[HEADER])')
         msg_headers = raw_msg_headers[0][1].decode().split('\r\n')
         headers = OrderedDict()
@@ -127,27 +192,10 @@ class MailOverseer:
 
         return headers
 
-    def _get_message_count(self, mailbox):
-        """
-        Retourne le nombre de messages non lus dans une boite spécifique
-        :param mailbox: boite mail
-        :return: le nombre de messages non lus
-        """
-        unseen_msg_count = 0
-        total_msg_count = 0
-
-        err_code, msg_count = self._connection.select(mailbox, readonly=True)
-        if err_code == 'OK':
-            total_msg_count = int(msg_count[0])
-            err_code, msg_list = self._connection.search(None, '(UNSEEN)')
-            if err_code == 'OK':
-                msg_list = msg_list[0].decode()
-                if msg_list:
-                    unseen_msg_count = len(msg_list.split(' '))
-
-        return total_msg_count, unseen_msg_count
-
     def _get_total_unseen_count(self):
+        """
+        Returns the total amount of unseen messages
+        """
         total_unseen = 0
         for mb in self._mailboxes:
             mb_name = mb['name']
@@ -162,8 +210,8 @@ class MailOverseer:
 
     def _get_unseen_count(self, mailbox):
         """
-        Nombre de message non lus sur une boite mail
-        :param mailbox: boite mail
+        Returns the amount of unseen messages in the specified mailbox
+        :param mailbox: mailbox to check for unseen messages
         """
         err_code, data = self._connection.status('"{}"'.format(mailbox), '(UNSEEN)')
         if err_code == 'OK':

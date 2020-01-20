@@ -18,7 +18,7 @@ def main():
     config.read(config_file)
 
     overseer = MailOverseer(config)
-    overseer.run()
+    exit(overseer.run())
 
 
 if __name__ == '__main__':
