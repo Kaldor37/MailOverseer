@@ -15,7 +15,6 @@ setup(
     install_requires=[
         'PyQt5>=5.14'
     ],
-    include_pacakge_data=True,
     package_data={
         'mailoverseer': ['icons/*.png']
     }

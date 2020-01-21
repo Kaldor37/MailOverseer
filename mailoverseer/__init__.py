@@ -56,8 +56,6 @@ class MailOverseer:
         # Qt components
         self._app = QApplication([])
 
-        print(ICONS_PATH)
-
         # System tray icons
         self._default_icon = QIcon(os.path.join(ICONS_PATH, 'default.png'))
         self._unseen_mails_icon = QIcon(os.path.join(ICONS_PATH, 'unseen-mails.png'))
