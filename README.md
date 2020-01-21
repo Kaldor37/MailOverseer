@@ -11,6 +11,7 @@ Il se connecte à un serveur IMAP et réalise diverses opérations sur vos mails
     * L'icône change fonction de la lecture de la boite mail
     * Possibilité de rafraichir dans le menu du clic droit
     * Possibilité d'appeler une commande système au clic sur l'icône (pour focus votre programme de messagerie par exemple)
+* Version 0.3 : affichage du nombre de mails non lus dans l'icône
 
 ## Configuration
 

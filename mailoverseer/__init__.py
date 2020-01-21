@@ -9,8 +9,8 @@ from collections import OrderedDict
 from datetime import datetime, timedelta
 from os.path import dirname
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtGui import QIcon
+from PyQt5.QtCore import QTimer, Qt, QRect
+from PyQt5.QtGui import QIcon, QPixmap, QColor, QPainter, QFont
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction
 
 from .__version__ import __version__
@@ -56,10 +56,6 @@ class MailOverseer:
         # Qt components
         self._app = QApplication([])
 
-        # System tray icons
-        self._default_icon = QIcon(os.path.join(ICONS_PATH, 'default.png'))
-        self._unseen_mails_icon = QIcon(os.path.join(ICONS_PATH, 'unseen-mails.png'))
-
         # System tray icon menu
         self._systray_menu = QMenu()
         self._systray_menu.addAction(QAction('Refresh', self._app, triggered=self._on_refresh_clicked))
@@ -67,6 +63,17 @@ class MailOverseer:
         self._systray_menu.addAction(QAction('Exit', self._app, triggered=self.stop))
 
         # System tray icon
+        self._default_icon = QIcon(os.path.join(ICONS_PATH, 'default.png'))
+        self._unseen_mails_pixmap = QPixmap(os.path.join(ICONS_PATH, 'unseen-mails.png'))
+        self._current_unseen_mails_pixmap = None
+
+        self._icon_max_unseen_count = config.get('tray', 'icon_max_unseen_count', fallback=9)
+        icon_max_unseen_count_rect = config.get('tray', 'icon_max_unseen_count_rect', fallback='64, 54, 70, 70')
+        self._icon_unseen_count_rect = QRect(*[int(coord.strip()) for coord in icon_max_unseen_count_rect.split(',')])
+        self._icon_unseen_count_font = QFont()
+        self._icon_unseen_count_font.setPixelSize(int(config.get('tray', 'icon_unseen_count_font_size', fallback=65)))
+        self._icon_unseen_count_color = QColor(config.get('tray', 'icon_unseen_count_color', fallback='white'))
+
         self._tray_icon = QSystemTrayIcon(self._default_icon)
         self._tray_icon.setContextMenu(self._systray_menu)
         self._tray_icon.activated.connect(self._on_tray_icon_activated)
@@ -75,10 +82,11 @@ class MailOverseer:
         # Timer running unseen mail checks
         self._main_timer = QTimer()
         self._main_timer.timeout.connect(self._check_unseen_mails)
-        self._main_timer.start(500)
 
     def run(self):
         self._tray_icon.show()
+        self._main_timer.start(500)
+
         return_code = self._app.exec_()
 
         self._disconnect()
@@ -134,7 +142,6 @@ class MailOverseer:
                 ):
                     self._last_unseen_stats = now
                     unseen = self._get_total_unseen_count()
-                    self._unseen_mails_icon.unseen_count = unseen
                     if unseen != self._last_unseen_count:
                         self._last_unseen_count = unseen
                         self._logger.info('New unseen count: {}'.format(unseen))
@@ -143,7 +150,7 @@ class MailOverseer:
                             self._logger.debug('Calling: {}'.format(self._unseen_command))
                             subprocess.run([self._unseen_command, str(unseen)])
 
-                        self._tray_icon.setIcon(self._unseen_mails_icon if unseen > 0 else self._default_icon)
+                        self._tray_icon.setIcon(self._gen_unseen_icon(unseen) if unseen > 0 else self._default_icon)
 
             else:
                 self._connect()
@@ -235,3 +242,24 @@ class MailOverseer:
                     'name': match.group(2).strip('"'),
                     'flags': match.group(1)
                 })
+
+    def _gen_unseen_icon(self, unseen_count: int):
+        """
+        Generates unseen mails icon
+
+        :param unseen_count: amount of uneen mails
+        """
+        # Pixmap must be kept in memory for later repaint
+        self._current_unseen_mails_pixmap = self._unseen_mails_pixmap.copy()
+
+        painter = QPainter(self._current_unseen_mails_pixmap)
+        painter.setFont(self._icon_unseen_count_font)
+        painter.setPen(self._icon_unseen_count_color)
+
+        if unseen_count > self._icon_max_unseen_count:
+            unseen_count = '{}+'.format(self._icon_max_unseen_count)
+        else:
+            unseen_count = str(unseen_count)
+
+        painter.drawText(self._icon_unseen_count_rect, Qt.AlignCenter, unseen_count)
+        return QIcon(self._current_unseen_mails_pixmap)
