@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from os.path import dirname
 
 from PyQt5.QtCore import QTimer, Qt, QRect
-from PyQt5.QtGui import QIcon, QPixmap, QColor, QPainter, QFont
+from PyQt5.QtGui import QIcon, QPixmap, QColor, QPainter, QFont, QPen
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction
 
 from .__version__ import __version__
@@ -63,16 +63,27 @@ class MailOverseer:
         self._systray_menu.addAction(QAction('Exit', self._app, triggered=self.stop))
 
         # System tray icon
-        self._default_icon = QIcon(os.path.join(ICONS_PATH, 'default.png'))
-        self._unseen_mails_pixmap = QPixmap(os.path.join(ICONS_PATH, 'unseen-mails.png'))
+        tray_icon_path = os.path.join(ICONS_PATH, 'tray.png')
+        self._default_icon = QIcon(tray_icon_path)
+        self._unseen_mails_pixmap = QPixmap(tray_icon_path)
         self._current_unseen_mails_pixmap = None
 
-        self._icon_max_unseen_count = config.get('tray', 'icon_max_unseen_count', fallback=9)
-        icon_max_unseen_count_rect = config.get('tray', 'icon_max_unseen_count_rect', fallback='64, 54, 70, 70')
+        self._icon_max_unseen_count = config.get('tray', 'icon_max_unseen_count', fallback=99)
+        icon_max_unseen_count_rect = config.get('tray', 'icon_max_unseen_count_rect', fallback='40, 28, 100, 100')
         self._icon_unseen_count_rect = QRect(*[int(coord.strip()) for coord in icon_max_unseen_count_rect.split(',')])
         self._icon_unseen_count_font = QFont()
-        self._icon_unseen_count_font.setPixelSize(int(config.get('tray', 'icon_unseen_count_font_size', fallback=65)))
+        self._icon_unseen_count_font_size_1d = int(config.get('tray', 'icon_unseen_count_font_size_1d', fallback=100))
+        self._icon_unseen_count_font_size_2d = int(config.get('tray', 'icon_unseen_count_font_size_2d', fallback=75))
         self._icon_unseen_count_color = QColor(config.get('tray', 'icon_unseen_count_color', fallback='white'))
+        self._icon_unseen_count_bubble_color = QColor(
+            config.get('tray', 'icon_unseen_count_bubble_color', fallback='#f53a86')
+        )
+        self._icon_unseen_count_bubble_border_pen = QPen(QColor(
+            config.get('tray', 'icon_unseen_count_bubble_border_color', fallback='black')
+        ))
+        self._icon_unseen_count_bubble_border_pen.setWidth(
+            int(config.get('tray', 'icon_unseen_count_bubble_border_width', fallback=8))
+        )
 
         self._tray_icon = QSystemTrayIcon(self._default_icon)
         self._tray_icon.setContextMenu(self._systray_menu)
@@ -253,13 +264,22 @@ class MailOverseer:
         self._current_unseen_mails_pixmap = self._unseen_mails_pixmap.copy()
 
         painter = QPainter(self._current_unseen_mails_pixmap)
+
+        # Fill count bubble
+        painter.setBrush(self._icon_unseen_count_bubble_color)
+        painter.drawEllipse(self._icon_unseen_count_rect)
+
+        # Draw count bubble border
+        painter.setPen(self._icon_unseen_count_bubble_border_pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(self._icon_unseen_count_rect)
+
+        # Write unread count
+        count = str(self._icon_unseen_count_font if unseen_count > self._icon_max_unseen_count else unseen_count)
+        self._icon_unseen_count_font.setPixelSize(
+            self._icon_unseen_count_font_size_2d if len(count) > 1 else self._icon_unseen_count_font_size_1d
+        )
         painter.setFont(self._icon_unseen_count_font)
         painter.setPen(self._icon_unseen_count_color)
-
-        if unseen_count > self._icon_max_unseen_count:
-            unseen_count = '{}+'.format(self._icon_max_unseen_count)
-        else:
-            unseen_count = str(unseen_count)
-
-        painter.drawText(self._icon_unseen_count_rect, Qt.AlignCenter, unseen_count)
+        painter.drawText(self._icon_unseen_count_rect, Qt.AlignCenter, count)
         return QIcon(self._current_unseen_mails_pixmap)
