@@ -41,7 +41,7 @@ class MailOverseer:
         self._logger = logging.getLogger()
         self._logger.setLevel(logging.DEBUG)
         log_handler = logging.StreamHandler(sys.stdout)
-        log_handler.setLevel(getattr(logging, config.get('overseer', 'log_level', fallback='DEBUG')))
+        log_handler.setLevel(getattr(logging, config.get('overseer', 'log_level', fallback='INFO')))
         log_handler.setFormatter(logging.Formatter('[MailOverseer] [%(levelname)s] %(message)s'))
         self._logger.addHandler(log_handler)
 
@@ -127,9 +127,13 @@ class MailOverseer:
         """
         Clicked on the tray icon
         """
+        # Calling external command if defined
         if activation_reason != QSystemTrayIcon.Context and self._systray_click_command:
             self._logger.debug('Calling: {}'.format(self._systray_click_command))
-            subprocess.run([self._systray_click_command])
+            subprocess.run(self._systray_click_command.split(' '))
+
+        # Refresh mails
+        self._check_unseen_mails(True)
 
     def _on_refresh_clicked(self):
         """
@@ -275,7 +279,7 @@ class MailOverseer:
         painter.drawEllipse(self._icon_unseen_count_rect)
 
         # Write unread count
-        count = str(self._icon_unseen_count_font if unseen_count > self._icon_max_unseen_count else unseen_count)
+        count = str(self._icon_max_unseen_count if unseen_count > self._icon_max_unseen_count else unseen_count)
         self._icon_unseen_count_font.setPixelSize(
             self._icon_unseen_count_font_size_2d if len(count) > 1 else self._icon_unseen_count_font_size_1d
         )
