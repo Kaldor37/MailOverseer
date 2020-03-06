@@ -127,13 +127,16 @@ class MailOverseer:
         """
         Clicked on the tray icon
         """
-        # Calling external command if defined
-        if activation_reason != QSystemTrayIcon.Context and self._systray_click_command:
-            self._logger.debug('Calling: {}'.format(self._systray_click_command))
-            subprocess.run(self._systray_click_command.split(' '))
+        # Activation via simple click
+        if activation_reason != QSystemTrayIcon.Context:
 
-        # Refresh mails
-        self._check_unseen_mails(True)
+            # Call external command if defined in the configuration
+            if self._systray_click_command:
+                self._logger.debug('Calling: {}'.format(self._systray_click_command))
+                subprocess.run(self._systray_click_command.split(' '))
+
+            # Refresh mails
+            self._check_unseen_mails(True)
 
     def _on_refresh_clicked(self):
         """
